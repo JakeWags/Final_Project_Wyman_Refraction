@@ -49,8 +49,7 @@ glm::mat4 getProjection(float zoom = 45.0f);
 unsigned int initPlane();
 void initPlaneShader();
 void renderPlane(unsigned int planeVAO);
-unsigned int loadCubemap(std::vector<std::string> faces);
-void initCubemap();
+void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh);
 
 // settings
 unsigned int SCR_WIDTH = 1500;
@@ -236,15 +235,6 @@ int main(int argc, char* argv[]) {
         normals[i * 9 + 6] = mesh.VN(mesh.FN(i).v[2]).x;
         normals[i * 9 + 7] = mesh.VN(mesh.FN(i).v[2]).y;
         normals[i * 9 + 8] = mesh.VN(mesh.FN(i).v[2]).z;
-
-        //texCoords[i * 6 + 0] = mesh.VT(mesh.FT(i).v[0]).x;
-        //texCoords[i * 6 + 1] = mesh.VT(mesh.FT(i).v[0]).y;
-
-        //texCoords[i * 6 + 2] = mesh.VT(mesh.FT(i).v[1]).x;
-        //texCoords[i * 6 + 3] = mesh.VT(mesh.FT(i).v[1]).y;
-
-        //texCoords[i * 6 + 4] = mesh.VT(mesh.FT(i).v[2]).x;
-        //texCoords[i * 6 + 5] = mesh.VT(mesh.FT(i).v[2]).y;
     }
 
     ////////////////////////////////////////////
@@ -296,31 +286,46 @@ int main(int argc, char* argv[]) {
     glGenFramebuffers(1, &frameBuffer);
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-    // create texture
-    GLuint textureBuffer;
-	glGenTextures(1, &textureBuffer);
-	glBindTexture(GL_TEXTURE_2D, textureBuffer);
 
-	// texture parameters
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); // mipmap linear for min
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); // bilinear for mag
+    // Front and Back face textures
+    GLuint frontDepthTexture, backDepthTexture;
+    glGenTextures(1, &frontDepthTexture);
+    glGenTextures(1, &backDepthTexture);
 
-    // setup anisotropic filtering for the texture
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
+    glBindTexture(GL_TEXTURE_2D, frontDepthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    // create depth buffer
-    GLuint depthBuffer;
-	glGenRenderbuffers(1, &depthBuffer);
-	glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
+    glBindTexture(GL_TEXTURE_2D, backDepthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    // configure framebuffer
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureBuffer, 0);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
+    // Create front-face depth buffer
+    GLuint frontDepthBuffer;
+    glGenRenderbuffers(1, &frontDepthBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, frontDepthBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
 
-	GLenum drawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-	glDrawBuffers(1, drawBuffers);
+    // Create back-face depth buffer
+    GLuint backDepthBuffer;
+    glGenRenderbuffers(1, &backDepthBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, backDepthBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
+
+	// Attach the textures to the framebuffer
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frontDepthTexture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, backDepthTexture, 0);
+
+	// Attach the depth renderbuffers to the framebuffer
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, frontDepthBuffer);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, backDepthBuffer);
+
+	// set the draw buffers
+
+    GLenum drawBuffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, drawBuffers);
 
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
 		std::cerr << "Framebuffer is not complete!" << std::endl;
@@ -359,114 +364,12 @@ int main(int argc, char* argv[]) {
         // -----
         processInput(window);
 
-        // render to texture
-        // -----------------
 		glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
 
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
-        // render the background plane
-        glm::mat4 view = textureCamera.GetViewMatrix();
-        
-        // apply rotations to the camera
-		view = glm::rotate(view, glm::radians(texturePitch), glm::vec3(1.0f, 0.0f, 0.0f));
-		view = glm::rotate(view, glm::radians(textureYaw), glm::vec3(0.0f, 1.0f, 0.0f));
-
-        // get the view direction after applying rotations
-		glm::vec3 viewDir = glm::vec3(view[2][0], view[2][1], view[2][2]);
-
-
-        // PLANE RENDERING
-        // disable writing to the depth buffer
-		glDepthMask(GL_FALSE);
-
-        planeShaderProgram.Bind();
-
-        glm::mat4 planeModel = glm::mat4(1.0f);
-
-        planeShaderProgram.SetUniformMatrix4(0, glm::value_ptr(planeModel));
-		planeShaderProgram.SetUniform(1, viewDir.x, viewDir.y, viewDir.z);
-
-        // bind texture for background
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textures[0]);
-		planeShaderProgram.SetUniform("background", textures[0]);
-
-        renderPlane(planeVAO);
-
-		// enable writing to the depth buffer
-		glDepthMask(GL_TRUE);
-
-        // Get the projection matrix
-        glm::mat4 projection = getProjection(textureCamera.Zoom);
-
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::scale(model, glm::vec3(0.25f));
-		glm::vec3 objectCenter = glm::vec3(0.0f, 0.0f, 0.0f);
-        if (mesh.IsBoundBoxReady()) {
-            // get the bounding box of the object
-            cy::Vec3f boundMin = mesh.GetBoundMin();
-            cy::Vec3f boundMax = mesh.GetBoundMax();
-
-            // spatial object center with respect to the origin
-            objectCenter = glm::vec3(
-                (boundMin.x + boundMax.x) / 2.0f,
-                (boundMin.y + boundMax.y) / 2.0f,
-                (boundMin.z + boundMax.z) / 2.0f
-            );
-
-            // translate it such that the center is at the origin
-            model = glm::translate(model, -objectCenter);
-        }
-
-        glm::mat4 mv = view * model;
-
-        glm::mat3 mv3 = glm::mat3(mv);
-        glm::mat3 mvNormal = glm::transpose(glm::inverse(mv3));
-
-        shaderProgram.Bind();
-
-		shaderProgram.SetUniformMatrix4("model", glm::value_ptr(model));
-        shaderProgram.SetUniformMatrix4("mv", glm::value_ptr(mv));
-        shaderProgram.SetUniformMatrix3("mvNormal", glm::value_ptr(mvNormal));
-        shaderProgram.SetUniformMatrix4("p", glm::value_ptr(projection));
-
-        lightDir = glm::vec3(
-            cos(glm::radians(yaw)) * cos(glm::radians(pitch)),
-            sin(glm::radians(pitch)),
-            sin(glm::radians(yaw)) * cos(glm::radians(pitch))
-        );
-
-        shaderProgram.SetUniform("lightDirection", lightDir.x, lightDir.y, lightDir.z);
-        shaderProgram.SetUniform("envMapViewDir", viewDir.x, viewDir.y, viewDir.z);
-
-        // bind texture for background
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textures[0]);
-
-		shaderProgram.SetUniform("background", textures[0]);
-
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, mesh.NF() * 3);
-
-        // render the above object to a texture renderbuffer as well
-		glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
-		shaderProgram.Bind();
-		shaderProgram.SetUniformMatrix4("model", glm::value_ptr(model));
-		shaderProgram.SetUniformMatrix4("mv", glm::value_ptr(mv));
-		shaderProgram.SetUniformMatrix3("mvNormal", glm::value_ptr(mvNormal));
-		shaderProgram.SetUniformMatrix4("p", glm::value_ptr(projection));
-		shaderProgram.SetUniform("lightDirection", lightDir.x, lightDir.y, lightDir.z);
-
-        glBindVertexArray(VAO);
-		glDrawArrays(GL_TRIANGLES, 0, mesh.NF() * 3);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		RenderScene(VAO, planeVAO, mesh);
 
         glfwSwapBuffers(window);
 
@@ -676,9 +579,7 @@ void initPlaneShader() {
     }
     planeShaderProgram.Bind();
     planeShaderProgram.RegisterUniform(0, "mvp");
-    planeShaderProgram.RegisterUniform(1, "viewDirection");
-    planeShaderProgram.RegisterUniform(2, "background");
-    planeShaderProgram.RegisterUniform(3, "model");
+    planeShaderProgram.RegisterUniform(1, "background");
 }
 
 // Create the plane VAO and VBO
@@ -728,54 +629,87 @@ void renderPlane(unsigned int planeVAO) {
     glClearColor(0.01f, 0.01f, 0.01f, 1.0f);
 }
 
+void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
+    // render the background plane
+    glm::mat4 view = textureCamera.GetViewMatrix();
 
-unsigned int loadCubemap(std::vector<std::string> faces) {
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+    // apply rotations to the camera
+    view = glm::rotate(view, glm::radians(texturePitch), glm::vec3(1.0f, 0.0f, 0.0f));
+    view = glm::rotate(view, glm::radians(textureYaw), glm::vec3(0.0f, 1.0f, 0.0f));
 
-    int width, height, nrChannels;
-    for (unsigned int i = 0; i < faces.size(); i++) {
-        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
-        if (data) {
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data
-            );
-            stbi_image_free(data);
-        }
-        else {
-            std::cerr << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
-            stbi_image_free(data);
-        }
+    // get the view direction after applying rotations
+    glm::vec3 viewDir = glm::vec3(view[2][0], view[2][1], view[2][2]);
+
+    // PLANE RENDERING
+
+    // disable writing to the depth buffer
+    glDepthMask(GL_FALSE);
+
+    planeShaderProgram.Bind();
+
+    glm::mat4 planeModel = glm::mat4(1.0f);
+
+    planeShaderProgram.SetUniformMatrix4("mvp", glm::value_ptr(planeModel));
+
+    // bind texture for background
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+    planeShaderProgram.SetUniform("background", textures[0]);
+
+    renderPlane(planeVAO);
+
+    // enable writing to the depth buffer
+    glDepthMask(GL_TRUE);
+
+    // Get the projection matrix
+    glm::mat4 projection = getProjection(textureCamera.Zoom);
+
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::scale(model, glm::vec3(0.25f));
+    glm::vec3 objectCenter = glm::vec3(0.0f, 0.0f, 0.0f);
+    if (mesh.IsBoundBoxReady()) {
+        // get the bounding box of the object
+        cy::Vec3f boundMin = mesh.GetBoundMin();
+        cy::Vec3f boundMax = mesh.GetBoundMax();
+
+        // spatial object center with respect to the origin
+        objectCenter = glm::vec3(
+            (boundMin.x + boundMax.x) / 2.0f,
+            (boundMin.y + boundMax.y) / 2.0f,
+            (boundMin.z + boundMax.z) / 2.0f
+        );
+
+        // translate it such that the center is at the origin
+        model = glm::translate(model, -objectCenter);
     }
 
-	// generate mipmaps and set texture parameters
-	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glm::mat4 mv = view * model;
 
-	// set the texture wrapping/filtering options (on the currently bound texture object)
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    return textureID;
-}
-
-void initCubemap() {
-    std::vector<std::string> faces = {
-        "assets/envMap/cubemap_posx.png",
-        "assets/envMap/cubemap_negx.png",
-        "assets/envMap/cubemap_posy.png",
-        "assets/envMap/cubemap_negy.png",
-        "assets/envMap/cubemap_posz.png",
-        "assets/envMap/cubemap_negz.png"
-    };
-    unsigned int cubemapTexture = loadCubemap(faces);
-    // Bind the cubemap texture to the plane shader uniform
-    planeShaderProgram.Bind();
-    planeShaderProgram.SetUniform(2, cubemapTexture);
+    glm::mat3 mv3 = glm::mat3(mv);
+    glm::mat3 mvNormal = glm::transpose(glm::inverse(mv3));
 
     shaderProgram.Bind();
-    shaderProgram.SetUniform("envMap", cubemapTexture);
+
+    shaderProgram.SetUniformMatrix4("model", glm::value_ptr(model));
+    shaderProgram.SetUniformMatrix4("mv", glm::value_ptr(mv));
+    shaderProgram.SetUniformMatrix3("mvNormal", glm::value_ptr(mvNormal));
+    shaderProgram.SetUniformMatrix4("p", glm::value_ptr(projection));
+
+    lightDir = glm::vec3(
+        cos(glm::radians(yaw)) * cos(glm::radians(pitch)),
+        sin(glm::radians(pitch)),
+        sin(glm::radians(yaw)) * cos(glm::radians(pitch))
+    );
+
+    shaderProgram.SetUniform("lightDirection", lightDir.x, lightDir.y, lightDir.z);
+    shaderProgram.SetUniform("envMapViewDir", viewDir.x, viewDir.y, viewDir.z);
+
+    // bind texture for background
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+
+    shaderProgram.SetUniform("background", textures[0]);
+
+    glBindVertexArray(VAO);
+    glDrawArrays(GL_TRIANGLES, 0, mesh.NF() * 3);
 }

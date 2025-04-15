@@ -4,7 +4,6 @@ out vec4 FragColor;
 in vec2 TexCoords;
 in vec3 FragPos;
 
-uniform vec3 viewDirection;
 uniform sampler2D background;
 
 void main()
