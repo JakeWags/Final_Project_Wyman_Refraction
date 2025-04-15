@@ -11,6 +11,8 @@ uniform float shininess;
 uniform float refractiveIndex;
 
 uniform sampler2D background;
+uniform sampler2D frontFaceDepth;
+uniform sampler2D backFaceDepth;
 
 in vec3 Normal;
 in vec3 FragPos;
@@ -18,6 +20,14 @@ in vec2 TexCoord;
 
 void main()
 {
+    float frontDepth = texture(frontFaceDepth, TexCoord).r;
+    float backDepth = texture(backFaceDepth, TexCoord).r;
+
+    float depthDifference = backDepth - frontDepth;
+
+    FragColor = vec4(vec3(depthDifference * 100), 1.0);
+    return;
+
     // get the normal direction
     vec3 norm = normalize(Normal);
 

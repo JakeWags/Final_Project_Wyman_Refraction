@@ -176,13 +176,15 @@ int main(int argc, char* argv[]) {
     shaderProgram.RegisterUniform(8, "shininess");
 	shaderProgram.RegisterUniform(9, "background");
     shaderProgram.RegisterUniform(10, "refractiveIndex");
+    shaderProgram.RegisterUniform(11, "frontFaceDepth");
+	shaderProgram.RegisterUniform(12, "backFaceDepth");
 
     ////////////////////////////////////////////
     // Load the model using cyTriMesh
     ////////////////////////////////////////////
     cy::TriMesh mesh;
     std::string filePath = "assets/" + std::string(argv[1]);
-    if (!mesh.LoadFromFileObj(filePath.c_str(), true)) {
+    if (!mesh.LoadFromFileObj(filePath.c_str(), false)) {
         std::cout << "Failed to load model" << std::endl;
     }
 
@@ -235,6 +237,19 @@ int main(int argc, char* argv[]) {
         normals[i * 9 + 6] = mesh.VN(mesh.FN(i).v[2]).x;
         normals[i * 9 + 7] = mesh.VN(mesh.FN(i).v[2]).y;
         normals[i * 9 + 8] = mesh.VN(mesh.FN(i).v[2]).z;
+
+		// get the texture coordinates of the vertices
+        if (mesh.HasTextureVertices()) {
+            texCoords[i * 6 + 0] = mesh.VT(mesh.FT(i).v[0]).x;
+            texCoords[i * 6 + 1] = mesh.VT(mesh.FT(i).v[0]).y;
+
+            texCoords[i * 6 + 2] = mesh.VT(mesh.FT(i).v[1]).x;
+            texCoords[i * 6 + 3] = mesh.VT(mesh.FT(i).v[1]).y;
+
+            texCoords[i * 6 + 4] = mesh.VT(mesh.FT(i).v[2]).x;
+            texCoords[i * 6 + 5] = mesh.VT(mesh.FT(i).v[2]).y;
+        }
+
     }
 
     ////////////////////////////////////////////
@@ -282,63 +297,43 @@ int main(int argc, char* argv[]) {
     // Compute the bounding box to get the center points
     mesh.ComputeBoundingBox();
 
-    GLuint frameBuffer = 0;
-    glGenFramebuffers(1, &frameBuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-
-
-    // Front and Back face textures
-    GLuint frontDepthTexture, backDepthTexture;
-    glGenTextures(1, &frontDepthTexture);
-    glGenTextures(1, &backDepthTexture);
-
-    glBindTexture(GL_TEXTURE_2D, frontDepthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glBindTexture(GL_TEXTURE_2D, backDepthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    // Create front-face depth buffer
-    GLuint frontDepthBuffer;
-    glGenRenderbuffers(1, &frontDepthBuffer);
-    glBindRenderbuffer(GL_RENDERBUFFER, frontDepthBuffer);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
-
-    // Create back-face depth buffer
-    GLuint backDepthBuffer;
-    glGenRenderbuffers(1, &backDepthBuffer);
-    glBindRenderbuffer(GL_RENDERBUFFER, backDepthBuffer);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
-
-	// Attach the textures to the framebuffer
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frontDepthTexture, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, backDepthTexture, 0);
-
-	// Attach the depth renderbuffers to the framebuffer
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, frontDepthBuffer);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, backDepthBuffer);
-
-	// set the draw buffers
-
-    GLenum drawBuffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-    glDrawBuffers(2, drawBuffers);
-
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-		std::cerr << "Framebuffer is not complete!" << std::endl;
-	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 	if (argc < 3) {
 		std::cerr << "Please provide a background image" << std::endl;
 		return -1;
 	}
     loadTexture(("assets/" + std::string(argv[2])).c_str());
     //loadTexture("assets/buildings.png");
+
+
+    // Depth buffers
+    cy::GLRenderDepth<GL_TEXTURE_2D> frontDepthRender, backDepthRender;
+    if (!frontDepthRender.Initialize(true, SCR_WIDTH, SCR_HEIGHT)) {
+        std::cerr << "Failed to initialize front depth render" << std::endl;
+        return -1;
+    }
+
+	if (!backDepthRender.Initialize(true, SCR_WIDTH, SCR_HEIGHT)) {
+		std::cerr << "Failed to initialize back depth render" << std::endl;
+		return -1;
+	}
+
+    frontDepthRender.Bind();
+    frontDepthRender.BindTexture(1);
+    frontDepthRender.SetTextureFilteringMode(GL_LINEAR_MIPMAP_LINEAR);
+    frontDepthRender.SetTextureWrappingMode(GL_REPEAT, GL_REPEAT);
+    frontDepthRender.BuildTextureMipmaps();
+    frontDepthRender.Unbind();
+
+    backDepthRender.Bind();
+    backDepthRender.BindTexture(2);
+    backDepthRender.SetTextureFilteringMode(GL_LINEAR_MIPMAP_LINEAR);
+    backDepthRender.SetTextureWrappingMode(GL_REPEAT, GL_REPEAT);
+    backDepthRender.BuildTextureMipmaps();
+	backDepthRender.Unbind();
+
+    // Unbind framebuffer after setup
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 
     unsigned int planeVAO = initPlane();
     initPlaneShader();
@@ -349,6 +344,8 @@ int main(int argc, char* argv[]) {
 	// set uniform for the background
     shaderProgram.Bind();
 	shaderProgram.SetUniform("background", 0);
+    shaderProgram.SetUniform("frontFaceDepth", 1);
+	shaderProgram.SetUniform("backFaceDepth", 2);
 
     ////////////////////////////////////////////
     // Render Loop
@@ -369,7 +366,41 @@ int main(int argc, char* argv[]) {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        glDisable(GL_CULL_FACE);
+
+        //// First pass: Front faces
+        frontDepthRender.Bind();
+        glClear(GL_DEPTH_BUFFER_BIT);
+
+        RenderScene(VAO, planeVAO, mesh);
+        frontDepthRender.Unbind();
+
+		//// Second pass: Back faces
+        glDepthFunc(GL_GREATER);
+        backDepthRender.Bind();
+        glClear(GL_DEPTH_BUFFER_BIT);
+
 		RenderScene(VAO, planeVAO, mesh);
+		backDepthRender.Unbind();
+
+        //// Third pass: render the results
+		// Bind to default framebuffer
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDepthFunc(GL_LESS);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, frontDepthRender.GetTextureID());
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, backDepthRender.GetTextureID());
+
+        shaderProgram.Bind();
+		shaderProgram.SetUniform("frontFaceDepth", frontDepthRender.GetTextureID());
+		shaderProgram.SetUniform("backFaceDepth", backDepthRender.GetTextureID());
+
+		// Render the scene
+        RenderScene(VAO, planeVAO, mesh);
 
         glfwSwapBuffers(window);
 
@@ -665,7 +696,7 @@ void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
     glm::mat4 projection = getProjection(textureCamera.Zoom);
 
     glm::mat4 model = glm::mat4(1.0f);
-    model = glm::scale(model, glm::vec3(0.25f));
+    model = glm::scale(model, glm::vec3(1.0f));
     glm::vec3 objectCenter = glm::vec3(0.0f, 0.0f, 0.0f);
     if (mesh.IsBoundBoxReady()) {
         // get the bounding box of the object
@@ -704,11 +735,13 @@ void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
     shaderProgram.SetUniform("lightDirection", lightDir.x, lightDir.y, lightDir.z);
     shaderProgram.SetUniform("envMapViewDir", viewDir.x, viewDir.y, viewDir.z);
 
-    // bind texture for background
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textures[0]);
+	glBindTexture(GL_TEXTURE_2D, textures[0]);
 
+
+	// set the uniform for the background
     shaderProgram.SetUniform("background", textures[0]);
+
 
     glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLES, 0, mesh.NF() * 3);
