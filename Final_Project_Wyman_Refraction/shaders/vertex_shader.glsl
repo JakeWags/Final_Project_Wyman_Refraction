@@ -12,12 +12,14 @@ uniform mat4 p;
 out vec3 Normal;
 out vec3 FragPos;
 out vec2 TexCoord;
+out float dn;
 
 void main()
 {
     Normal = mvNormal * aNormal;
     FragPos = vec3(model * vec4(aPos, 1.0));
     TexCoord = aTexCoords;
+    dn = abs(dot(aNormal, vec3(0.0, 0.0, 1.0)));  // Approximate thickness along normal
 
     gl_Position = p * mv * vec4(aPos, 1.0);
 }

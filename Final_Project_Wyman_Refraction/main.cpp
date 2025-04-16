@@ -178,6 +178,8 @@ int main(int argc, char* argv[]) {
     shaderProgram.RegisterUniform(10, "refractiveIndex");
     shaderProgram.RegisterUniform(11, "frontFaceDepth");
 	shaderProgram.RegisterUniform(12, "backFaceDepth");
+	shaderProgram.RegisterUniform(13, "backFaceNormals");
+    shaderProgram.RegisterUniform(14, "normalsPass");
 
     ////////////////////////////////////////////
     // Load the model using cyTriMesh
@@ -331,6 +333,18 @@ int main(int argc, char* argv[]) {
     backDepthRender.BuildTextureMipmaps();
 	backDepthRender.Unbind();
 
+	cy::GLRenderTexture<GL_TEXTURE_2D> backfaceNormalBuffer;
+    if (!backfaceNormalBuffer.Initialize(true, 4, SCR_WIDTH, SCR_HEIGHT)) {
+		std::cerr << "Failed to initialize backface normal buffer" << std::endl;
+		return -1;
+    }
+    backfaceNormalBuffer.Bind();
+	backfaceNormalBuffer.BindTexture(3);
+	backfaceNormalBuffer.SetTextureFilteringMode(GL_LINEAR_MIPMAP_LINEAR);
+	backfaceNormalBuffer.SetTextureWrappingMode(GL_REPEAT, GL_REPEAT);
+	backfaceNormalBuffer.BuildTextureMipmaps();
+	backfaceNormalBuffer.Unbind();
+
     // Unbind framebuffer after setup
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -346,6 +360,7 @@ int main(int argc, char* argv[]) {
 	shaderProgram.SetUniform("background", 0);
     shaderProgram.SetUniform("frontFaceDepth", 1);
 	shaderProgram.SetUniform("backFaceDepth", 2);
+    shaderProgram.SetUniform("backFaceNormals", 3);
 
     ////////////////////////////////////////////
     // Render Loop
@@ -366,9 +381,10 @@ int main(int argc, char* argv[]) {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glDisable(GL_CULL_FACE);
+        glEnable(GL_CULL_FACE);
 
         //// First pass: Front faces
+		glCullFace(GL_BACK);
         frontDepthRender.Bind();
         glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -376,14 +392,26 @@ int main(int argc, char* argv[]) {
         frontDepthRender.Unbind();
 
 		//// Second pass: Back faces
-        glDepthFunc(GL_GREATER);
+        glCullFace(GL_FRONT);
         backDepthRender.Bind();
+        glClearDepth(1.0f);
         glClear(GL_DEPTH_BUFFER_BIT);
 
 		RenderScene(VAO, planeVAO, mesh);
 		backDepthRender.Unbind();
 
-        //// Third pass: render the results
+		//// Third pass: Back face normals
+		backfaceNormalBuffer.Bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
+		shaderProgram.Bind();
+		shaderProgram.SetUniform("normalsPass", 1);
+		RenderScene(VAO, planeVAO, mesh);
+		backfaceNormalBuffer.Unbind();
+		shaderProgram.SetUniform("normalsPass", 0);
+
+
+        //// Fourth pass: render the results
 		// Bind to default framebuffer
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -395,9 +423,13 @@ int main(int argc, char* argv[]) {
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, backDepthRender.GetTextureID());
 
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, backfaceNormalBuffer.GetTextureID());
+
         shaderProgram.Bind();
 		shaderProgram.SetUniform("frontFaceDepth", frontDepthRender.GetTextureID());
 		shaderProgram.SetUniform("backFaceDepth", backDepthRender.GetTextureID());
+		shaderProgram.SetUniform("backFaceNormals", backfaceNormalBuffer.GetTextureID());
 
 		// Render the scene
         RenderScene(VAO, planeVAO, mesh);
@@ -696,7 +728,11 @@ void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
     glm::mat4 projection = getProjection(textureCamera.Zoom);
 
     glm::mat4 model = glm::mat4(1.0f);
-    model = glm::scale(model, glm::vec3(1.0f));
+
+
+    float modelScale = 0.25f;
+
+    model = glm::scale(model, glm::vec3(modelScale));
     glm::vec3 objectCenter = glm::vec3(0.0f, 0.0f, 0.0f);
     if (mesh.IsBoundBoxReady()) {
         // get the bounding box of the object
