@@ -384,7 +384,7 @@ int main(int argc, char* argv[]) {
         glEnable(GL_CULL_FACE);
 
         //// First pass: Front faces
-		glCullFace(GL_BACK);
+        glCullFace(GL_BACK);
         frontDepthRender.Bind();
         glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -415,7 +415,7 @@ int main(int argc, char* argv[]) {
 		// Bind to default framebuffer
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glDepthFunc(GL_LESS);
+        glCullFace(GL_BACK);
 
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, frontDepthRender.GetTextureID());

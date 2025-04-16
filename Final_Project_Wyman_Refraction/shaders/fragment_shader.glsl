@@ -93,13 +93,10 @@ void main()
     float backDepth = texture(backFaceDepth, vec2(screenP1UV.x, screenP1UV.y)).r;
     float thickness = backDepth - frontDepth; // geometric thickness
 
-    // backDepth seems to be equal to 1.0 always
-    // something going on there
-
     // debugging
     //FragColor = vec4(vec3((1 - backDepth) * 100), 1.0);
-    FragColor = vec4(vec3(thickness * 100), 1.0);
-    return;
+    //FragColor = vec4(vec3(thickness * 100), 1.0);
+    //return;
 
     // Approximate second hit point P2
     vec3 P2 = P1 + thickness * T1;
@@ -128,7 +125,7 @@ void main()
 
     // set the color. Ambient multiplied by 0.5 to make it less intense
     vec3 color = lightColor * ((lightIntensity * (diffuse + specular)) + (lightIntensity * 0.5 * ambient));
-    color = color + (refractedColor2);
+    color = color + (refractedColor);
 
     FragColor = vec4(color, 1.0);
 }
