@@ -97,7 +97,7 @@ float lightIntensity = 1.0f;
 // material values
 glm::vec3 specularColor(0.5f);
 float shininess = 11.5f;
-float refractiveIndex = 1.5f; // glass
+float refractiveIndex = 1.2f;
 
 // Shader initialization
 cy::GLSLProgram shaderProgram;
@@ -180,6 +180,8 @@ int main(int argc, char* argv[]) {
 	shaderProgram.RegisterUniform(12, "backFaceDepth");
 	shaderProgram.RegisterUniform(13, "backFaceNormals");
     shaderProgram.RegisterUniform(14, "normalsPass");
+
+    shaderProgram.RegisterUniform(15, "view");
 
     ////////////////////////////////////////////
     // Load the model using cyTriMesh
@@ -415,7 +417,7 @@ int main(int argc, char* argv[]) {
 		// Bind to default framebuffer
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glCullFace(GL_BACK);
+        glDisable(GL_CULL_FACE);
 
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, frontDepthRender.GetTextureID());
@@ -758,6 +760,7 @@ void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
     shaderProgram.Bind();
 
     shaderProgram.SetUniformMatrix4("model", glm::value_ptr(model));
+    shaderProgram.SetUniformMatrix4("view", glm::value_ptr(view));
     shaderProgram.SetUniformMatrix4("mv", glm::value_ptr(mv));
     shaderProgram.SetUniformMatrix3("mvNormal", glm::value_ptr(mvNormal));
     shaderProgram.SetUniformMatrix4("p", glm::value_ptr(projection));
@@ -774,10 +777,8 @@ void RenderScene(GLuint VAO, GLuint planeVAO, cy::TriMesh mesh) {
     glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 
-
 	// set the uniform for the background
     shaderProgram.SetUniform("background", textures[0]);
-
 
     glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLES, 0, mesh.NF() * 3);

@@ -9,6 +9,7 @@ uniform mat4 mv;
 uniform mat3 mvNormal;
 uniform mat4 p;
 
+out vec3 vertNormal;
 out vec3 Normal;
 out vec3 FragPos;
 out vec2 TexCoord;
@@ -16,6 +17,7 @@ out float dn;
 
 void main()
 {
+    vertNormal = aNormal;
     Normal = mvNormal * aNormal;
     FragPos = vec3(model * vec4(aPos, 1.0));
     TexCoord = aTexCoords;

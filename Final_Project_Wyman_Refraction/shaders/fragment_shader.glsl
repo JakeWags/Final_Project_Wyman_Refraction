@@ -17,6 +17,10 @@ uniform sampler2D backFaceNormals;
 
 uniform bool normalsPass;
 
+uniform mat4 view;
+uniform mat4 p;
+
+in vec3 vertNormal;
 in vec3 Normal;
 in vec3 FragPos;
 in vec2 TexCoord;
@@ -29,7 +33,7 @@ void main()
 
     if (normalsPass) {
         // If in normals pass, output the normal direction
-        FragColor = vec4(norm, 1.0);
+        FragColor = vec4(vertNormal, 1.0);
         return;
     }
 
@@ -83,7 +87,7 @@ void main()
     vec3 P1 = FragPos;
 
     // Compute first refraction direction T1
-    vec3 T1 = refract(viewDirection, norm, refractiveIndexRatio);
+    vec3 T1 = refract(viewDirection, normalize(vertNormal), refractiveIndexRatio);
 
     // Scale P1 to screen space
     vec2 screenP1UV = gl_FragCoord.xy / vec2(1500, 1500); // 1500/1500 is the window resolution
@@ -95,21 +99,49 @@ void main()
 
     // debugging
     //FragColor = vec4(vec3((1 - backDepth) * 100), 1.0);
-    //FragColor = vec4(vec3(thickness * 100), 1.0);
+    FragColor = vec4(vec3(thickness * 1000), 1.0);
     //return;
 
     // Approximate second hit point P2
     vec3 P2 = P1 + thickness * T1;
-    // Scale P2 to screen space
-    vec2 screenP2 = P2.xy / vec2(1500, 1500); // 1500/1500 is the window resolution
+   
+    vec4 projectedP2 = p * view * vec4(P2, 1.0); // Apply projection matrix
+    vec2 screenP2 = projectedP2.xy / projectedP2.w; // Convert to NDC (Normalized Device Coordinates)
+    screenP2 = screenP2 * 0.5 + 0.5; // Convert to UV space
+
+
+
+    //screenP2 = clamp(screenP2, vec2(0.0), vec2(1.0));
 
     // Retrieve normal at P2 (N2)
-    vec3 N2 = texture(backFaceNormals, vec2(screenP2.xy)).rgb;  // Assuming back-face normal stored
+    vec3 N2 = texture(backFaceNormals, screenP2).rgb;  // Assuming back-face normal stored
+    if (length(N2) < 0.001) {
+        N2 = vec3(0.0, 1.0, 0.0); // Default upward-facing normal to avoid errors
+    }
+
+    if (dot(viewDirection, N2) < 0.0) {
+        N2 = -N2;
+    }
+
+    //N2 = vec3(0.0, 0.0, -1.0); // For debugging)
+
+    // debugging
+    FragColor = vec4(N2, 1.0);
+    //return;
 
     // Compute second refraction direction T2
-    vec3 T2 = refract(T1, normalize(N2), refractiveIndex);
+    vec3 T2 = refract(normalize(T1), normalize(N2), refractiveIndex);
+    
+    if (length(T2) < 0.001) {
+        T2 = reflect(viewDirection, normalize(norm));
+    }
 
-    refractedUV = screenUV + T2.xy * 0.075; // Scale distortion
+    FragColor = vec4(T2, 1.0);
+    //return;
+
+    //return;
+
+    refractedUV = screenUV + T2.xy * 0.175; // Scale distortion
 
     // If the UV coordinates are out of bounds, use the texture mirror location (sometimes there are artifacts when you zoom in)
     if (refractedUV.x < 0.0) refractedUV.x = -refractedUV.x;
@@ -125,7 +157,7 @@ void main()
 
     // set the color. Ambient multiplied by 0.5 to make it less intense
     vec3 color = lightColor * ((lightIntensity * (diffuse + specular)) + (lightIntensity * 0.5 * ambient));
-    color = color + (refractedColor);
+    color = color + (refractedColor2);
 
     FragColor = vec4(color, 1.0);
 }
